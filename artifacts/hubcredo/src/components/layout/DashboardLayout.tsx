@@ -60,7 +60,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             {/* Show logo in header only when sidebar is closed */}
             {!sidebarOpen && (
               <Link href="/" style={{ display: "flex", alignItems: "center", textDecoration: "none" }}>
-                <img src="/favicon.svg" alt="HubCredo" style={{ width: 120, height: 36, objectFit: "contain" }} />
+                <img src="/Hubcredo.png" alt="HubCredo" style={{ width: 120, height: 36, objectFit: "contain" }} />
               </Link>
             )}
           </div>
