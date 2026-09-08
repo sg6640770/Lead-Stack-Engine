@@ -68,7 +68,7 @@ export default function Login() {
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 8 }}>
           <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: 8, textDecoration: "none", marginBottom: 10 }}>
-            <img src="/favicon.svg" alt="HubCredo" style={{ width: 280, height: 120, objectFit: "contain" }} />
+            <img src="/Hubcredo.png" alt="HubCredo" style={{ width: 280, height: 120, objectFit: "contain" }} />
             <span style={{ color: "#fff", fontWeight: 800, fontSize: "1.15rem", letterSpacing: "-0.03em" }}></span>
           </Link>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#fff", letterSpacing: "-0.03em", marginBottom: 4 }}>Welcome back</h1>
