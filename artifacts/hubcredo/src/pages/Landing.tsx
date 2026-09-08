@@ -91,7 +91,7 @@ export default function Landing() {
       <nav style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 999, height: 62, display: "flex", alignItems: "center", background: scrolled ? "rgba(5,16,31,.92)" : "transparent", backdropFilter: scrolled ? "blur(20px) saturate(180%)" : "none", borderBottom: scrolled ? "1px solid rgba(255,255,255,.06)" : "1px solid transparent", transition: "background .3s, border-color .3s" }}>
         <div style={{ maxWidth: 1140, margin: "0 auto", padding: "0 5%", width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, color: "#fff", fontWeight: 800, fontSize: "1.1rem", letterSpacing: "-0.03em", textDecoration: "none" }}>
-            <img src="/favicon.svg" alt="HubCredo" style={{ width: 280, height: 120, marginTop: 10, objectFit: "contain" }} />
+            <img src="/Hubcredo.png" alt="HubCredo" style={{ width: 280, height: 120, marginTop: 10, objectFit: "contain" }} />
           </Link>
           {!isMobile && (
             <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
@@ -170,7 +170,7 @@ export default function Landing() {
                     ))}
                   </svg>
                   <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 10, width: isMobile ? 64 : 88, height: isMobile ? 64 : 88, borderRadius: "50%", background: "linear-gradient(135deg,#1e1b4b,#0f172a)", border: "2px solid rgba(99,102,241,.4)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 10px rgba(79,70,229,.06),0 0 40px rgba(79,70,229,.25),0 0 80px rgba(79,70,229,.1)", animation: "hubPulse 3s ease-in-out infinite", flexShrink: 0 }}>
-                    <img src="/favicon.svg" alt="HubCredo" style={{ width: isMobile ? 140 : 210, height: isMobile ? 60 : 90, objectFit: "contain" }} />
+                    <img src="/Hubcredo.png" alt="HubCredo" style={{ width: isMobile ? 140 : 210, height: isMobile ? 60 : 90, objectFit: "contain" }} />
                   </div>
                   {orbitNodes.map((node, i) => (
                     <div key={node.id} style={{ position: "absolute", display: "flex", flexDirection: "column", alignItems: "center", gap: isMobile ? 3 : 6, ...node.style }}>
@@ -385,7 +385,7 @@ export default function Landing() {
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.8fr 1fr 1fr 1.6fr", gap: isMobile ? 32 : 40, marginBottom: 52 }}>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: "1.1rem", color: "#fff", letterSpacing: "-.03em", marginBottom: 12 }}>
-                <img src="/favicon.svg" alt="HubCredo" style={{ width: 280, height: 120, objectFit: "contain" }} />
+                <img src="/Hubcredo.png" alt="HubCredo" style={{ width: 280, height: 120, objectFit: "contain" }} />
               </div>
               <p style={{ fontSize: ".92rem", lineHeight: 1.75, color: "rgba(255,255,255,.42)", maxWidth: isMobile ? "100%" : 300 }}>The complete GTM stack for founders — guided, connected, and live in 30 minutes.</p>
               <br></br><div style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 4, padding: "12px 16px", maxWidth: isMobile ? "100%" : 300 }}>
