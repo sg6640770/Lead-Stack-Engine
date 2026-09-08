@@ -223,7 +223,7 @@ export default function Onboarding() {
       <div className="w-full max-w-lg">
         {/* Logo */}
         <div className="flex justify-center mb-2">
-  <img src="/favicon.svg" alt="HubCredo" style={{ width: 210, height: 90, objectFit: "contain" }} />
+  <img src="/Hubcredo.png" alt="HubCredo" style={{ width: 210, height: 90, objectFit: "contain" }} />
 </div>
         {/* Progress bar */}
         <div className="flex items-center gap-1.5 mb-8">
