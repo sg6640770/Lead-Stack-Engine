@@ -71,7 +71,7 @@ export default function Signup() {
 
         <div style={{ textAlign: "center", marginBottom: 4 }}>
           <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
-            <img src="/favicon.svg" alt="HubCredo" style={{ width: 210, height: 90, objectFit: "contain" }} />
+            <img src="/Hubcredo.png" alt="HubCredo" style={{ width: 210, height: 90, objectFit: "contain" }} />
           </Link>
           <h1 style={{ fontSize: "1.35rem", fontWeight: 800, color: "#fff", letterSpacing: "-0.03em", marginBottom: 2, marginTop: 0 }}>Start for free</h1>
           <p style={{ fontSize: ".82rem", color: "rgba(255,255,255,.45)", marginTop: 0, marginBottom: 0 }}>Build your GTM stack in 30 minutes</p>
