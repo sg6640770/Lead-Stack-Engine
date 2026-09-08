@@ -138,7 +138,7 @@ export function Sidebar({ open, isDesktop, onClose }: SidebarProps) {
       {/* Logo */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px", borderBottom: `1px solid ${accentBorderColor}` }}>
         <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
-          <img src="/favicon.svg" alt="HubCredo" style={{ width: 70, height: 30, objectFit: "contain", flexShrink: 0 }} />
+          <img src="/Hubcredo.png" alt="HubCredo" style={{ width: 70, height: 30, objectFit: "contain", flexShrink: 0 }} />
           <div>
             <span style={{ color: "#1E1B4B", fontWeight: 800, fontSize: "1.05rem", letterSpacing: "-0.02em", display: "block", lineHeight: 1.2 }}>HubCredo</span>
             {isRecruit && (
