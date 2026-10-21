@@ -3,7 +3,7 @@ export const TOPUP_PACKS: Record<
   string,
   { credits: number; amount_inr: number; amount_usd: number; name: string }
 > = {
-  small:  { credits: 10,  amount_inr:  95000, amount_usd:  1000, name: "$10 Credit Pack"  },
+  small:  { credits: 1,  amount_inr:  9500, amount_usd:  100, name: "$1 Credit Pack"  },
   medium: { credits: 28,  amount_inr: 237500, amount_usd:  2500, name: "$25 Credit Pack"  },
   large:  { credits: 60,  amount_inr: 475000, amount_usd:  5000, name: "$50 Credit Pack"  },
   xl:     { credits: 130, amount_inr: 950000, amount_usd: 10000, name: "$100 Credit Pack" },
