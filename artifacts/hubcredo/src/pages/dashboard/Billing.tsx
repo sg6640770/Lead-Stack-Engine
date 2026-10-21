@@ -7,7 +7,6 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { getToken } from "@/lib/auth";
 import { useCreditStore } from "@/store/creditStore";
-import { openRazorpayCheckout, type RazorpayPaymentResponse } from "@/lib/razorpay";
 
 type Currency = "INR" | "USD";
 
@@ -136,6 +135,8 @@ async function apiFetch(path: string, opts?: RequestInit) {
   });
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 function CurrencyToggle({ currency, onChange }: { currency: Currency; onChange: (c: Currency) => void }) {
   return (
     <div className="flex items-center gap-1 bg-[#F5F3FF] border border-[#E0D9FF] rounded-xl p-1 text-sm font-semibold select-none">
@@ -172,64 +173,91 @@ export default function Billing() {
   const [currency, setCurrency] = useState<Currency>("INR");
   const { setBalance, fetchBalance } = useCreditStore();
 
-  useEffect(() => { fetchStatus(); }, []);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("checkout");
 
-  async function fetchStatus() {
-    setLoading(true);
+    if (!result) {
+      fetchStatus();
+      return;
+    }
+
+    // clean the URL so a refresh doesn't re-trigger this
+    window.history.replaceState({}, "", window.location.pathname);
+
+    if (result === "cancelled") {
+      toast({ title: "Payment cancelled", description: "No charges were made.", variant: "destructive" });
+      fetchStatus();
+      return;
+    }
+
+    if (result === "success") {
+      toast({ title: "Payment received", description: "Adding credits to your account…" });
+      waitForCredits();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function fetchStatus(): Promise<BillingStatus | null> {
     try {
       const res = await apiFetch("/api/billing/status");
       if (!res.ok) throw new Error();
       const data: BillingStatus = await res.json();
       setStatus(data);
       setBalance(data.credit_balance);
+      return data;
     } catch {
       toast({ title: "Failed to load billing info", variant: "destructive" });
+      return null;
     } finally {
       setLoading(false);
     }
   }
 
-  async function startPayment(loadingKey: string, type: "subscription" | "topup", extra: { tier?: string; pack_id?: string }) {
+  // Stripe's webhook grants credits a moment after redirect — poll briefly for it
+  async function waitForCredits() {
+    setLoading(true);
+    const first = await fetchStatus();
+    const baseTxId = first?.transactions?.[0]?.id;
+    for (let i = 0; i < 8; i++) {
+      await sleep(1500);
+      const next = await fetchStatus();
+      if (next && next.transactions?.[0]?.id !== baseTxId) {
+        toast({ title: "Credits added!", description: "Your balance has been updated." });
+        await fetchBalance();
+        return;
+      }
+    }
+    toast({
+      title: "Still processing",
+      description: "Your payment went through. Credits may take a minute to appear — refresh shortly.",
+    });
+    await fetchBalance();
+  }
+
+  async function startPayment(
+    loadingKey: string,
+    type: "subscription" | "topup",
+    extra: { tier?: string; pack_id?: string },
+  ) {
     setCheckoutLoading(loadingKey);
     try {
-      const res = await apiFetch("/api/billing/create-order", {
+      const res = await apiFetch("/api/billing/create-checkout-session", {
         method: "POST",
         body: JSON.stringify({ type, currency, ...extra }),
       });
-      const orderData = await res.json();
-      if (!res.ok) throw new Error(orderData.error ?? "Failed to create order");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to start checkout");
+      if (!data.url) throw new Error("No checkout URL returned");
 
-      const description = type === "subscription"
-        ? `${extra.tier} plan subscription`
-        : `${extra.pack_id} credit pack`;
-
-      openRazorpayCheckout({
-        ...orderData,
-        description,
-        onSuccess: async (response: RazorpayPaymentResponse) => {
-          try {
-            const verifyRes = await apiFetch("/api/billing/verify-payment", {
-              method: "POST",
-              body: JSON.stringify({ ...response, type, ...extra }),
-            });
-            const verifyData = await verifyRes.json();
-            if (!verifyRes.ok) throw new Error(verifyData.error ?? "Verification failed");
-            toast({ title: "Payment successful!", description: "Credits have been added to your account." });
-            await fetchBalance();
-            fetchStatus();
-          } catch (err) {
-            toast({ title: "Payment failed", description: err instanceof Error ? err.message : "Please try again.", variant: "destructive" });
-          } finally {
-            setCheckoutLoading(null);
-          }
-        },
-        onFailure: () => {
-          toast({ title: "Payment cancelled", description: "No charges were made.", variant: "destructive" });
-          setCheckoutLoading(null);
-        },
-      });
+      // Redirect to Stripe-hosted Checkout
+      window.location.href = data.url;
     } catch (err) {
-      toast({ title: "Failed to start checkout", description: err instanceof Error ? err.message : "Try again.", variant: "destructive" });
+      toast({
+        title: "Failed to start checkout",
+        description: err instanceof Error ? err.message : "Try again.",
+        variant: "destructive",
+      });
       setCheckoutLoading(null);
     }
   }
@@ -302,6 +330,13 @@ export default function Billing() {
             </div>
           )}
 
+          {status?.subscription_status === "past_due" && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 mb-4 text-sm text-red-600">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>Your last subscription payment failed. Please update your payment method.</span>
+            </div>
+          )}
+
           {/* Action cost reference */}
           <div className="mb-5 bg-[#F5F3FF] border border-[#E0D9FF] rounded-xl p-4">
             <div className="flex items-center gap-2 mb-3">
@@ -362,9 +397,9 @@ export default function Billing() {
         <section>
           <div className="flex items-center justify-between mb-1">
             <h2 className="font-semibold text-[#1a1a2e] text-lg">Monthly Plans</h2>
-            <span className="text-xs text-[#9CA3AF]">Paying in {currency === "INR" ? "Indian Rupees (₹)" : "US Dollars ($)"}</span>
+            <span className="text-xs text-[#9CA3AF]">Paying in {currency === "INR" ? "Indian Rupees (₹)" : "US Dollars ($)"} · Secure checkout by Stripe</span>
           </div>
-          <p className="text-sm text-[#6B7280] mb-4">Subscribe to get bulk credits each month at a discounted rate.</p>
+          <p className="text-sm text-[#6B7280] mb-4">Subscribe to get bulk credits each month at a discounted rate. Renews monthly until cancelled.</p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {PLANS.map((plan) => {
               const isActive = tier === plan.id;
