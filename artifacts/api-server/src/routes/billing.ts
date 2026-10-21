@@ -1,237 +1,183 @@
 import { Router, type IRouter } from "express";
-import crypto from "crypto";
-import { getRazorpay } from "../lib/razorpay";
+import { getStripe } from "../lib/stripe";
 import { supabase } from "../lib/supabase";
-import { grantCredits, spendCreditsFixed, getCreditBalance } from "../lib/credits";
+import { spendCreditsFixed, getCreditBalance } from "../lib/credits";
 import { requireAuth, type AuthenticatedRequest } from "../lib/auth";
+import { TOPUP_PACKS, SUBSCRIPTION_TIERS } from "../lib/billingPlans";
 
 const router: IRouter = Router();
 
-// ── Pack / tier definitions ────────────────────────────────────────────
-// 1 credit = $1 purchasing power.  Exchange rate: ₹95 per $1.
-// INR amounts in paise (1 INR = 100 paise), USD amounts in cents (1 USD = 100 cents).
-//
-// Top-up packs give bonus credits for larger purchases.
-const TOPUP_PACKS: Record<string, { credits: number; amount_inr: number; amount_usd: number; name: string }> = {
-  small:  { credits: 10,  amount_inr:  95000, amount_usd:  1000, name: "$10 Credit Pack"  },
-  medium: { credits: 28,  amount_inr: 237500, amount_usd:  2500, name: "$25 Credit Pack"  },
-  large:  { credits: 60,  amount_inr: 475000, amount_usd:  5000, name: "$50 Credit Pack"  },
-  xl:     { credits: 130, amount_inr: 950000, amount_usd: 10000, name: "$100 Credit Pack" },
-};
 
-// Subscription tiers: monthly credit allowances at a discounted rate.
-// starter=$29/mo→35cr, growth=$399/mo→500cr, scale=$799/mo→1000cr
-const SUBSCRIPTION_TIERS: Record<string, { credits: number; amount_inr: number; amount_usd: number }> = {
-  starter: { credits: 35,  amount_inr:  275500, amount_usd:  2900 },
-  growth:  { credits: 500, amount_inr: 3790500, amount_usd: 39900 },
-  scale:   { credits: 1000, amount_inr: 7590500, amount_usd: 79900 },
-};
+async function getOrCreateCustomer(
+  userId: string,
+  email?: string | null,
+  name?: string | null,
+): Promise<string> {
+  const { data } = await supabase
+    .from("profiles")
+    .select("stripe_customer_id")
+    .eq("id", userId)
+    .single();
 
-// ── POST /billing/create-order ────────────────────────────────────────
-router.post("/billing/create-order", requireAuth, async (req: AuthenticatedRequest, res): Promise<void> => {
-  const { type, tier, pack_id, currency = "INR" } = req.body as {
-    type: "subscription" | "topup";
-    tier?: string;
-    pack_id?: string;
-    currency?: "INR" | "USD";
-  };
+  if (data?.stripe_customer_id) return data.stripe_customer_id as string;
 
-  if (type !== "subscription" && type !== "topup") {
-    res.status(400).json({ error: "type must be 'subscription' or 'topup'" });
-    return;
-  }
+  const customer = await getStripe().customers.create({
+    email: email || undefined,
+    name: name || undefined,
+    metadata: { user_id: userId },
+  });
 
-  if (currency !== "INR" && currency !== "USD") {
-    res.status(400).json({ error: "currency must be 'INR' or 'USD'" });
-    return;
-  }
+  await supabase
+    .from("profiles")
+    .update({ stripe_customer_id: customer.id })
+    .eq("id", userId);
 
-  try {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("email, full_name")
-      .eq("id", req.userId!)
-      .single();
+  return customer.id;
+}
 
-    const razorpay = getRazorpay();
-    const receiptId = crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+// ── POST /billing/create-checkout-session ─────────────────────────────
+router.post(
+  "/billing/create-checkout-session",
+  requireAuth,
+  async (req: AuthenticatedRequest, res): Promise<void> => {
+    const { type, tier, pack_id, currency = "INR" } = req.body as {
+      type: "subscription" | "topup";
+      tier?: string;
+      pack_id?: string;
+      currency?: "INR" | "USD";
+    };
 
-    if (type === "topup") {
-      const pack = pack_id ? TOPUP_PACKS[pack_id] : null;
-      if (!pack) {
-        res.status(400).json({ error: "pack_id must be 'small', 'medium', 'large', or 'xl'" });
-        return;
-      }
-
-      const amount = currency === "USD" ? pack.amount_usd : pack.amount_inr;
-
-      const order = await razorpay.orders.create({
-        amount,
-        currency,
-        receipt: receiptId,
-        notes: {
-          user_id: req.userId!,
-          pack_id: pack_id!,
-          credits: String(pack.credits),
-          type: "topup",
-        },
-      } as any);
-
-      await supabase.from("topup_purchases").insert({
-        user_id: req.userId!,
-        pack_id,
-        credits: pack.credits,
-        amount_paid_cents: amount,
-        razorpay_payment_intent_id: order.id,
-        status: "pending",
-      });
-
-      res.json({
-        order_id: order.id,
-        amount: order.amount,
-        currency: order.currency,
-        key_id: process.env.RAZORPAY_KEY_ID,
-        user_name: (profile?.full_name as string) ?? "",
-        user_email: (profile?.email as string) ?? "",
-      });
+    if (type !== "subscription" && type !== "topup") {
+      res.status(400).json({ error: "type must be 'subscription' or 'topup'" });
+      return;
+    }
+    if (currency !== "INR" && currency !== "USD") {
+      res.status(400).json({ error: "currency must be 'INR' or 'USD'" });
       return;
     }
 
-    // subscription
-    if (tier !== "starter" && tier !== "growth" && tier !== "scale") {
-      res.status(400).json({ error: "tier must be 'starter', 'growth', or 'scale'" });
-      return;
-    }
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("email, full_name")
+        .eq("id", req.userId!)
+        .single();
 
-    const tierConfig = SUBSCRIPTION_TIERS[tier];
-    const amount = currency === "USD" ? tierConfig.amount_usd : tierConfig.amount_inr;
-
-    const order = await razorpay.orders.create({
-      amount,
-      currency,
-      receipt: receiptId,
-      notes: {
-        user_id: req.userId!,
-        tier,
-        credits: String(tierConfig.credits),
-        type: "subscription",
-      },
-    } as any);
-
-    await supabase.from("subscriptions").upsert({
-      user_id: req.userId!,
-      tier,
-      status: "pending",
-    }, { onConflict: "user_id" });
-
-    res.json({
-      order_id: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      key_id: process.env.RAZORPAY_KEY_ID,
-      user_name: (profile?.full_name as string) ?? "",
-      user_email: (profile?.email as string) ?? "",
-    });
-  } catch (err) {
-    req.log.error({ err }, "Failed to create Razorpay order");
-    res.status(500).json({ error: "Failed to create order" });
-  }
-});
-
-// ── POST /billing/verify-payment ─────────────────────────────────────
-router.post("/billing/verify-payment", requireAuth, async (req: AuthenticatedRequest, res): Promise<void> => {
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, type, pack_id, tier } = req.body as {
-    razorpay_order_id: string;
-    razorpay_payment_id: string;
-    razorpay_signature: string;
-    type: "subscription" | "topup";
-    pack_id?: string;
-    tier?: string;
-  };
-
-  const secret = process.env.RAZORPAY_KEY_SECRET;
-  if (!secret) {
-    res.status(500).json({ error: "Razorpay secret not configured" });
-    return;
-  }
-
-  // Verify HMAC SHA256 signature
-  const body = `${razorpay_order_id}|${razorpay_payment_id}`;
-  const expectedSignature = crypto
-    .createHmac("sha256", secret)
-    .update(body)
-    .digest("hex");
-
-  if (expectedSignature !== razorpay_signature) {
-    res.status(400).json({ error: "Payment verification failed" });
-    return;
-  }
-
-  try {
-    if (type === "topup") {
-      const pack = pack_id ? TOPUP_PACKS[pack_id] : null;
-      if (!pack) {
-        res.status(400).json({ error: "Invalid pack_id" });
-        return;
-      }
-
-      const newBalance = await grantCredits(
+      const stripe = getStripe();
+      const customerId = await getOrCreateCustomer(
         req.userId!,
-        pack.credits,
-        "topup",
-        `Credit top-up: ${pack.name}`,
-        razorpay_payment_id
+        profile?.email as string | undefined,
+        profile?.full_name as string | undefined,
       );
 
-      // Mark topup as completed — order ID was stored as razorpay_payment_intent_id
-      await supabase
-        .from("topup_purchases")
-        .update({
-          status: "completed",
-          razorpay_payment_intent_id: razorpay_payment_id,
-        })
-        .eq("razorpay_payment_intent_id", razorpay_order_id);
+      const appUrl = process.env.APP_URL ?? (req.headers.origin as string) ?? "http://localhost:5173";
+      const success_url = `${appUrl}/dashboard/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`;
+const cancel_url = `${appUrl}/dashboard/billing?checkout=cancelled`;
+const stripeCurrency = currency.toLowerCase();
+      
 
-      res.json({ success: true, credits_added: pack.credits, new_balance: newBalance });
-      return;
+      // ── One-time top-up ──
+      if (type === "topup") {
+        const pack = pack_id ? TOPUP_PACKS[pack_id] : null;
+        if (!pack) {
+          res.status(400).json({ error: "pack_id must be 'small', 'medium', 'large', or 'xl'" });
+          return;
+        }
+        const amount = currency === "USD" ? pack.amount_usd : pack.amount_inr;
+
+        const session = await stripe.checkout.sessions.create({
+          mode: "payment",
+          customer: customerId,
+          client_reference_id: req.userId!,
+          line_items: [
+            {
+              quantity: 1,
+              price_data: {
+                currency: stripeCurrency,
+                unit_amount: amount,
+                product_data: { name: pack.name },
+              },
+            },
+          ],
+          metadata: {
+            user_id: req.userId!,
+            type: "topup",
+            pack_id: pack_id!,
+            credits: String(pack.credits),
+          },
+          success_url,
+          cancel_url,
+        });
+
+        await supabase.from("topup_purchases").insert({
+          user_id: req.userId!,
+          pack_id,
+          credits: pack.credits,
+          amount_paid_cents: amount,
+          stripe_session_id: session.id,
+          status: "pending",
+        });
+
+        res.json({ url: session.url, session_id: session.id });
+        return;
+      }
+
+      // ── Recurring subscription ──
+      if (tier !== "starter" && tier !== "growth" && tier !== "scale") {
+        res.status(400).json({ error: "tier must be 'starter', 'growth', or 'scale'" });
+        return;
+      }
+
+      const { data: existing } = await supabase
+        .from("subscriptions")
+        .select("status")
+        .eq("user_id", req.userId!)
+        .maybeSingle();
+
+      if (existing?.status === "active") {
+        res.status(409).json({
+          error: "You already have an active subscription. Cancel it first to switch plans.",
+        });
+        return;
+      }
+
+      const tierConfig = SUBSCRIPTION_TIERS[tier];
+      const amount = currency === "USD" ? tierConfig.amount_usd : tierConfig.amount_inr;
+      const label = tier.charAt(0).toUpperCase() + tier.slice(1);
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        customer: customerId,
+        client_reference_id: req.userId!,
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: stripeCurrency,
+              unit_amount: amount,
+              recurring: { interval: "month" },
+              product_data: { name: `${label} plan — ${tierConfig.credits} credits/month` },
+            },
+          },
+        ],
+        metadata: {
+          user_id: req.userId!,
+          type: "subscription",
+          tier,
+          credits: String(tierConfig.credits),
+        },
+        subscription_data: { metadata: { user_id: req.userId!, tier } },
+        success_url,
+        cancel_url,
+      });
+
+      res.json({ url: session.url, session_id: session.id });
+    } catch (err) {
+      req.log.error({ err }, "Failed to create Stripe checkout session");
+      res.status(500).json({ error: "Failed to create checkout session" });
     }
-
-    // subscription
-    if (tier !== "starter" && tier !== "growth" && tier !== "scale") {
-      res.status(400).json({ error: "Invalid tier" });
-      return;
-    }
-
-    const credits = SUBSCRIPTION_TIERS[tier].credits;
-
-    const newBalance = await grantCredits(
-      req.userId!,
-      credits,
-      "subscription_grant",
-      `${tier} plan credits`,
-      razorpay_payment_id
-    );
-
-    // Note: DB column has a typo — "razorpy_subscription_id" (missing 'a')
-    await supabase.from("subscriptions").upsert({
-      user_id: req.userId!,
-      tier,
-      status: "active",
-      razorpy_subscription_id: razorpay_payment_id,
-      credits_granted_this_period: true,
-    }, { onConflict: "user_id" });
-
-    await supabase
-      .from("profiles")
-      .update({ subscription_tier: tier, subscription_status: "active" })
-      .eq("id", req.userId!);
-
-    res.json({ success: true, credits_added: credits, new_balance: newBalance });
-  } catch (err) {
-    req.log.error({ err }, "Failed to verify payment");
-    res.status(500).json({ error: "Failed to process payment" });
-  }
-});
+  },
+);
 
 // ── GET /billing/status ──────────────────────────────────────────────
 router.get("/billing/status", requireAuth, async (req: AuthenticatedRequest, res): Promise<void> => {
@@ -269,7 +215,6 @@ router.get("/billing/status", requireAuth, async (req: AuthenticatedRequest, res
 });
 
 // ── POST /billing/spend-fixed ─────────────────────────────────────────
-// Deduct a fixed number of credits (e.g. for domain purchases where cost = price × 95)
 router.post("/billing/spend-fixed", requireAuth, async (req: AuthenticatedRequest, res): Promise<void> => {
   const { amount, description } = req.body as { amount?: unknown; description?: unknown };
 
@@ -301,7 +246,6 @@ router.get("/billing/credit-costs", requireAuth, async (req: AuthenticatedReques
     for (const row of data ?? []) {
       costs[row.action_type as string] = row.credits_cost as number;
     }
-
     res.json(costs);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch credit costs");
@@ -312,6 +256,21 @@ router.get("/billing/credit-costs", requireAuth, async (req: AuthenticatedReques
 // ── POST /billing/cancel-subscription ───────────────────────────────
 router.post("/billing/cancel-subscription", requireAuth, async (req: AuthenticatedRequest, res): Promise<void> => {
   try {
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("stripe_subscription_id")
+      .eq("user_id", req.userId!)
+      .maybeSingle();
+
+    // Cancel in Stripe first so the customer is not billed again
+    if (sub?.stripe_subscription_id) {
+      try {
+        await getStripe().subscriptions.cancel(sub.stripe_subscription_id as string);
+      } catch (err: any) {
+        if (err?.code !== "resource_missing") throw err; // already gone = fine
+      }
+    }
+
     await supabase
       .from("subscriptions")
       .update({ status: "cancelled" })
