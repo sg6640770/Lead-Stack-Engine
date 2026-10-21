@@ -109,7 +109,7 @@ const PLANS = [
 
 // Top-up packs — bonus credits for larger one-time purchases
 const TOPUP_PACKS = [
-  { id: "small",  name: "$10 Pack",  credits: 10,  priceINR: "₹950",   priceUSD: "$10",  description: "10 credits — no frills",          bonus: "" },
+  { id: "small",  name: "$1 Pack",  credits: 10,  priceINR: "₹95",   priceUSD: "$1",  description: "10 credits — no frills",          bonus: "" },
   { id: "medium", name: "$25 Pack",  credits: 28,  priceINR: "₹2,375", priceUSD: "$25",  description: "28 credits — 3 bonus credits",     bonus: "+12% bonus" },
   { id: "large",  name: "$50 Pack",  credits: 60,  priceINR: "₹4,750", priceUSD: "$50",  description: "60 credits — 10 bonus credits",    bonus: "+20% bonus" },
   { id: "xl",     name: "$100 Pack", credits: 130, priceINR: "₹9,500", priceUSD: "$100", description: "130 credits — 30 bonus credits",   bonus: "+30% bonus" },
